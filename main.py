@@ -103,7 +103,8 @@ class MyApp(MONAILabelApp):
         #################################################
 
         for n, b in self.models.items():
-            if n == "wholeBody_ct_segmentation":
+            if "wholeBody_ct_segmentation" in n:
+                
                 task = CustomBundleInferTask(
                     bundle_path=b,
                     conf=self.conf,
@@ -123,9 +124,18 @@ class MyApp(MONAILabelApp):
                 logger.info("+++ Adding DeepEdit Inferer")
                 infers[n] = i
             else:
-                i = BundleInferTask(b, self.conf)
-                logger.info(f"+++ Adding Inferer:: {n} => {i}")
-                infers[n] = i
+                # i = BundleInferTask(b, self.conf)
+                # logger.info(f"+++ Adding Inferer:: {n} => {i}")
+                # infers[n] = i
+
+                task = CustomBundleInferTask(
+                    bundle_path=b,
+                    conf=self.conf,
+                    label_indices=[0, 1, 2],  # Modify this list as needed
+                    type=InferType.SEGMENTATION
+                )
+                logger.info(f"+++ Custom Inferer for {n} with label filtering")
+                infers[n] = task
 
         #################################################
         # SAM
