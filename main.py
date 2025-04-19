@@ -195,6 +195,11 @@ def main():
             shutil.move(label, label_file)
 
             print(label_json)
+            with open("test.txt", "w") as f:
+                f.write(f"++++ Image File: {image_path}\n")
+                f.write(f"++++ Label File: {label_file}\n")
+                f.write(f"++++ Device: {device}\n")
+                f.write(f"++++ Label JSON: {label_json}\n")
             print(f"++++ Image File: {image_path}")
             print(f"++++ Label File: {label_file}")
             break
