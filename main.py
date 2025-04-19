@@ -11,9 +11,9 @@
 
 import logging
 import os
-from typing import Dict
+from typing import Dict , List, Optional
 
-from monai.transforms import Invertd, SaveImaged,Transform
+from monai.transforms import Invertd, SaveImaged,Transform,MapTransform
 
 import monailabel
 from monailabel.interfaces.app import MONAILabelApp
@@ -30,24 +30,47 @@ from monailabel.tasks.train.bundle import BundleTrainTask
 from monailabel.utils.others.generic import get_bundle_models, strtobool
 
 logger = logging.getLogger(__name__)
-class SelectLabels(Transform):
+class SelectLabelsd(MapTransform):
     """
     Custom transform to filter specific label indices from segmentation output.
+    Operates on dictionary data format (standard for MONAI Label).
     """
-    def __init__(self, label_indices):
+    def __init__(self, keys: str, label_indices: List[int]):
+        super().__init__(keys)
         self.label_indices = label_indices
 
     def __call__(self, data):
-        pred = data.get("pred")
-        if pred is not None:
-            # Select specified channels (assuming channel-first format)
-            data["pred"] = pred[self.label_indices, ...]
-            
-            # Update label names if available in metadata
-            label_names = data.get("label_names")
-            if label_names:
-                data["label_names"] = [label_names[i] for i in self.label_indices]
-        return data
+        d = dict(data)
+        for key in self.keys:
+            if key in d:
+                # Assuming channel-first format [C, H, W, D]
+                d[key] = d[key][self.label_indices, ...]
+                
+                # Update corresponding metadata if exists
+                meta_key = f"{key}_meta_dict"
+                if meta_key in d:
+                    orig_labels = d[meta_key].get("labels")
+                    if orig_labels:
+                        d[meta_key]["labels"] = [orig_labels[i] for i in self.label_indices]
+        return d
+
+class CustomBundleInferTask(BundleInferTask):
+    def __init__(self, bundle_path, conf, label_indices: Optional[List[int]] = None, **kwargs):
+        super().__init__(bundle_path, conf, **kwargs)
+        self.label_indices = label_indices
+
+    def post_transforms(self, data=None):
+        # Get original post transforms from bundle config
+        transforms = super().post_transforms(data)
+
+        # Add our custom label filtering at the end
+        if self.label_indices:
+            transforms.append(
+                SelectLabelsd(keys="pred", label_indices=self.label_indices)
+            )
+            logger.info(f"Added SelectLabelsd transform with indices: {self.label_indices}")
+
+        return transforms
 
 class MyApp(MONAILabelApp):
     def __init__(self, app_dir, studies, conf):
@@ -80,13 +103,19 @@ class MyApp(MONAILabelApp):
         #################################################
 
         for n, b in self.models.items():
-            post_filter = []
             if n == "wholeBody_ct_segmentation":
-                # Example: Keep first 3 labels (modify indices as needed)
-                post_filter.append(SelectLabels(label_indices=[0, 1, 2]))
+                task = CustomBundleInferTask(
+                    bundle_path=b,
+                    conf=self.conf,
+                    label_indices=[0, 1, 2],  # Modify this list as needed
+                    type=InferType.SEGMENTATION
+                )
+                logger.info(f"+++ Custom Inferer for {n} with label filtering")
+                infers[n] = task
+
             if "deepedit" in n:
                 # Adding automatic inferer
-                i = BundleInferTask(b, self.conf, type="segmentation",post_filter=post_filter)
+                i = BundleInferTask(b, self.conf, type="segmentation")
                 logger.info(f"+++ Adding Inferer:: {n}_seg => {i}")
                 infers[n + "_seg"] = i
                 # Adding inferer for managing clicks
@@ -94,7 +123,7 @@ class MyApp(MONAILabelApp):
                 logger.info("+++ Adding DeepEdit Inferer")
                 infers[n] = i
             else:
-                i = BundleInferTask(b, self.conf, post_filter=post_filter)
+                i = BundleInferTask(b, self.conf)
                 logger.info(f"+++ Adding Inferer:: {n} => {i}")
                 infers[n] = i
 
