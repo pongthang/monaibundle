@@ -60,15 +60,23 @@ class CustomBundleInferTask(BundleInferTask):
         self.label_indices = label_indices
 
     def post_transforms(self, data=None):
-        # Get original post transforms from bundle config
+        # Get original post transforms
         transforms = super().post_transforms(data)
+        
+        # Find position of AsDiscreted transform
+        discreted_idx = -1
+        for i, t in enumerate(transforms):
+            if t.__class__.__name__ == "AsDiscreted":
+                discreted_idx = i
+                break
 
-        # Add our custom label filtering at the end
-        if self.label_indices:
-            transforms.append(
+        if self.label_indices and discreted_idx >= 0:
+            # Insert label selection BEFORE discretization
+            transforms.insert(
+                discreted_idx,
                 SelectLabelsd(keys="pred", label_indices=self.label_indices)
             )
-            logger.info(f"Added SelectLabelsd transform with indices: {self.label_indices}")
+            logger.info(f"Added SelectLabelsd BEFORE AsDiscreted at index {discreted_idx}")
 
         return transforms
 
