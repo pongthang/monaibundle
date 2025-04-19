@@ -1,0 +1,6 @@
+model/*
+bin/*
+__pycache__
+*.pt
+*.zip
+logs/*
