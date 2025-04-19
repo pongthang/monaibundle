@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Dict
 
-from monai.transforms import Invertd, SaveImaged
+from monai.transforms import Invertd, SaveImaged,Transform
 
 import monailabel
 from monailabel.interfaces.app import MONAILabelApp
@@ -30,7 +30,24 @@ from monailabel.tasks.train.bundle import BundleTrainTask
 from monailabel.utils.others.generic import get_bundle_models, strtobool
 
 logger = logging.getLogger(__name__)
+class SelectLabels(Transform):
+    """
+    Custom transform to filter specific label indices from segmentation output.
+    """
+    def __init__(self, label_indices):
+        self.label_indices = label_indices
 
+    def __call__(self, data):
+        pred = data.get("pred")
+        if pred is not None:
+            # Select specified channels (assuming channel-first format)
+            data["pred"] = pred[self.label_indices, ...]
+            
+            # Update label names if available in metadata
+            label_names = data.get("label_names")
+            if label_names:
+                data["label_names"] = [label_names[i] for i in self.label_indices]
+        return data
 
 class MyApp(MONAILabelApp):
     def __init__(self, app_dir, studies, conf):
@@ -63,9 +80,13 @@ class MyApp(MONAILabelApp):
         #################################################
 
         for n, b in self.models.items():
+            post_filter = []
+            if n == "wholeBody_ct_segmentation":
+                # Example: Keep first 3 labels (modify indices as needed)
+                post_filter.append(SelectLabels(label_indices=[0, 1, 2]))
             if "deepedit" in n:
                 # Adding automatic inferer
-                i = BundleInferTask(b, self.conf, type="segmentation")
+                i = BundleInferTask(b, self.conf, type="segmentation",post_filter=post_filter)
                 logger.info(f"+++ Adding Inferer:: {n}_seg => {i}")
                 infers[n + "_seg"] = i
                 # Adding inferer for managing clicks
@@ -73,7 +94,7 @@ class MyApp(MONAILabelApp):
                 logger.info("+++ Adding DeepEdit Inferer")
                 infers[n] = i
             else:
-                i = BundleInferTask(b, self.conf)
+                i = BundleInferTask(b, self.conf, post_filter=post_filter)
                 logger.info(f"+++ Adding Inferer:: {n} => {i}")
                 infers[n] = i
 
